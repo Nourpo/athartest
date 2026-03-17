@@ -140,13 +140,11 @@
       <p class="muted">External organizer panel connected to Google Sheets backend.</p>
 
       <input id="webAppUrl" placeholder="Paste Apps Script Web App URL here" />
-      <input id="accessCode" type="password" placeholder="Access code" />
       <input id="organizerName" placeholder="Organizer name" />
-      <button onclick="login()">Login</button>
       <div id="loginMsg" class="msg"></div>
     </div>
 
-    <div id="panel" style="display:none;">
+    <div id="panel">
       <div class="tabs">
         <button onclick="showTab('scanTab')">Scan</button>
         <button onclick="showTab('searchTab')">Search</button>
@@ -244,7 +242,6 @@
     let scanner = null;
     let cameraRunning = false;
     let scanLocked = false;
-    let currentRole = null;
 
     function baseUrl() {
       return document.getElementById("webAppUrl").value.trim();
@@ -302,33 +299,6 @@
         body: JSON.stringify(data)
       });
       return res.json();
-    }
-
-    async function login() {
-      if (!baseUrl()) {
-        setMsg("loginMsg", "Paste Apps Script URL first", "error");
-        return;
-      }
-
-      const code = document.getElementById("accessCode").value.trim();
-      if (!code) {
-        setMsg("loginMsg", "Enter access code", "error");
-        return;
-      }
-
-      try {
-        const res = await postJson({ action: "apiLogin", code });
-        if (!res.ok) {
-          setMsg("loginMsg", "Invalid code", "error");
-          return;
-        }
-        currentRole = res.role;
-        setMsg("loginMsg", "Logged in as " + res.role, "success");
-        document.getElementById("panel").style.display = "block";
-        loadDashboard();
-      } catch (err) {
-        setMsg("loginMsg", "Login failed", "error");
-      }
     }
 
     async function checkIn(qrValue) {
@@ -644,3 +614,4 @@
   </script>
 </body>
 </html>
+عدل دا خلاص بقي
