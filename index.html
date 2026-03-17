@@ -242,6 +242,7 @@
     let scanner = null;
     let cameraRunning = false;
     let scanLocked = false;
+    let dashboardInterval = null;
 
     function baseUrl() {
       return document.getElementById("webAppUrl").value.trim();
@@ -257,11 +258,18 @@
       el.textContent = text || "";
     }
 
-    function showTab(id) {
-      document.querySelectorAll(".tab").forEach(t => t.classList.remove("active"));
-      document.getElementById(id).classList.add("active");
-    }
+function showTab(id) {
+  document.querySelectorAll(".tab").forEach(t => t.classList.remove("active"));
+  document.getElementById(id).classList.add("active");
 
+  if (id === "dashboardTab") {
+    loadDashboard();
+  }
+
+  if (id === "pointsTab") {
+    loadPresent();
+  }
+}
     function escapeHtml(str) {
       return String(str)
         .replace(/&/g, "&amp;")
@@ -611,6 +619,55 @@
         }, duration);
       } catch (_) {}
     }
+    function startAutoRefresh() {
+  if (dashboardInterval) clearInterval(dashboardInterval);
+
+  dashboardInterval = setInterval(() => {
+    if (baseUrl()) {
+      loadDashboard();
+      loadPresentSilently();
+    }
+  }, 5000); // كل 5 ثواني
+}
+
+async function loadPresentSilently() {
+  try {
+    const rows = await jsonp(baseUrl() + "?action=apiPresent");
+    const presentList = document.getElementById("presentList");
+    if (!presentList) return;
+
+    const qEl = document.getElementById("p_search");
+    const q = qEl ? qEl.value.trim().toLowerCase() : "";
+
+    const filtered = q
+      ? rows.filter(r =>
+          [r.attendeeId, r.name, r.email, r.whatsapp].some(v =>
+            String(v || "").toLowerCase().includes(q)
+          )
+        )
+      : rows;
+
+    presentList.innerHTML = filtered.length
+      ? filtered.map(r => `
+        <div class="person">
+          <strong>${escapeHtml(r.name)}</strong>
+          <div>${escapeHtml(r.attendeeId)}</div>
+          <div>${escapeHtml(r.email || "")}</div>
+          <div>Check-in: ${escapeHtml(String(r.checkInTime || ""))}</div>
+          <div>Points: ${r.totalPoints}</div>
+          <button onclick="selectPoint('${r.attendeeId}')">Select</button>
+        </div>
+      `).join("")
+      : '<p class="muted">No present attendees</p>';
+  } catch (err) {}
+}
+    document.getElementById("webAppUrl").addEventListener("change", () => {
+  if (baseUrl()) {
+    loadDashboard();
+    startAutoRefresh();
+  }
+});
+    
   </script>
 </body>
 </html>
