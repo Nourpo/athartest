@@ -4,67 +4,478 @@
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <script src="https://unpkg.com/html5-qrcode"></script>
 <style>
-body{font-family:Arial;margin:0;background:#f5f7fb}
-.header{background:#0fb9b1;color:white;padding:16px;text-align:center;font-size:20px}
-.card{background:white;margin:16px;padding:16px;border-radius:16px}
-button{background:#ff8a00;color:white;border:none;padding:12px;width:100%;border-radius:10px;font-weight:bold}
-input{width:100%;padding:12px;margin-top:10px;border-radius:10px;border:1px solid #ddd}
-.stat{display:flex;justify-content:space-between;padding:8px}
+:root{
+  --teal:#2FB6AD;
+  --teal-dark:#1f8f88;
+  --orange:#FF7A2F;
+  --bg:#f5fbfb;
+  --card:#ffffff;
+  --text:#17313a;
+  --muted:#6b7f86;
+}
+body{margin:0;font-family:system-ui;background:linear-gradient(180deg,#f5fbfb,#fff8f3);}
+.header{background:linear-gradient(135deg,var(--teal),var(--orange));color:#fff;padding:18px;text-align:center;font-size:22px;font-weight:700}
+.container{padding:16px;max-width:1100px;margin:auto}
+.card{background:var(--card);margin-bottom:16px;padding:16px;border-radius:18px;box-shadow:0 10px 30px rgba(0,0,0,.08)}
+.tabs{display:grid;grid-template-columns:repeat(6,1fr);gap:10px;margin-bottom:16px}
+button{background:var(--teal);color:white;border:none;padding:13px 14px;width:100%;border-radius:12px;font-weight:700;cursor:pointer}
+button.orange{background:var(--orange)}
+button.secondary{background:#eef9f8;color:var(--text)}
+input,select{width:100%;padding:13px;border-radius:12px;border:1px solid #d8efed;margin-top:10px}
+.row,.stats,.grid{display:grid;gap:10px}
+.row{grid-template-columns:1fr 1fr}
+.grid{grid-template-columns:1fr 1fr}
+.stats{grid-template-columns:repeat(5,1fr)}
+.tab{display:none}
+.tab.active{display:block}
+#reader{border-radius:16px;overflow:hidden;background:#000;min-height:260px;margin-top:12px}
+.msg{margin-top:10px;font-weight:700;min-height:24px}
+.success{color:#0f9d58}.warn{color:#b26a00}.error{color:#d93025}
+.person{margin-top:10px;padding:12px;border-radius:14px;background:#fafefe;border:1px solid #e0f1ef}
+.stat{background:#eef9f8;padding:14px;border-radius:14px}
+.stat.orange{background:#fff3ea}
+.stat span{display:block;color:var(--muted);font-size:12px;margin-bottom:6px}
+.stat strong{font-size:24px}
+.badge{display:inline-block;padding:5px 10px;border-radius:999px;font-size:12px;font-weight:700;margin-top:8px}
+.badge.ok{background:#e8f5e9;color:#137333}
+.badge.warn{background:#fff4e5;color:#9a6700}
+.badge.no{background:#fce8e6;color:#c5221f}
+canvas{width:100%;max-height:260px;background:#fff;border-radius:14px}
+.scan-flash{animation:flash .45s ease}
+@keyframes flash{0%{transform:scale(1)}50%{transform:scale(1.02);box-shadow:0 0 0 6px rgba(47,182,173,.18)}100%{transform:scale(1)}}
+@media(max-width:800px){.tabs,.stats,.row,.grid{grid-template-columns:1fr}}
 </style>
 </head>
 <body>
+<div class="header">Athar Attendance System</div>
 
-<div class="header">Athar Attendance</div>
+<div class="container">
+  <div class="card">
+    <h3>Setup</h3>
+    <select id="eventSelect"></select>
+    <input id="organizerName" placeholder="Organizer name (optional)" />
+    <div id="topMsg" class="msg"></div>
+  </div>
 
-<div class="card">
-<div id="reader"></div>
-<button onclick="start()">Start Scan</button>
-</div>
+  <div class="tabs">
+    <button onclick="showTab('scanTab')">Scan</button>
+    <button class="orange" onclick="showTab('dashboardTab')">Dashboard</button>
+    <button onclick="showTab('leaderboardTab')">Leaderboard</button>
+    <button class="orange" onclick="showTab('searchTab')">Search</button>
+    <button onclick="showTab('pointsTab')">Points</button>
+    <button class="orange" onclick="showTab('adminTab')">Admin</button>
+  </div>
 
-<div class="card">
-<h3>Dashboard</h3>
-<div class="stat"><span>Total</span><span id="total">0</span></div>
-<div class="stat"><span>Present</span><span id="present">0</span></div>
-<div class="stat"><span>Absent</span><span id="absent">0</span></div>
-</div>
+  <div id="scanTab" class="tab active">
+    <div class="card" id="scanCard">
+      <h3>Scan QR</h3>
+      <div class="row">
+        <button onclick="startScanner()">Start Camera</button>
+        <button class="secondary" onclick="stopScanner()">Stop Camera</button>
+      </div>
+      <div id="reader"></div>
+      <input id="manualId" placeholder="Manual attendee ID" />
+      <button class="orange" onclick="manualScan()">Check in manually</button>
+      <div id="scanMsg" class="msg"></div>
+      <div id="scanResult"></div>
+    </div>
+  </div>
 
-<div class="card">
-<h3>Points</h3>
-<input id="id" placeholder="Attendee ID">
-<input id="pts" placeholder="Points">
-<button onclick="addPoints()">Add</button>
+  <div id="dashboardTab" class="tab">
+    <div class="card">
+      <h3>Live Dashboard</h3>
+      <div class="stats">
+        <div class="stat"><span>Total</span><strong id="d_total">0</strong></div>
+        <div class="stat"><span>Present</span><strong id="d_present">0</strong></div>
+        <div class="stat orange"><span>Absent</span><strong id="d_absent">0</strong></div>
+        <div class="stat"><span>Attendance</span><strong id="d_attendance">0%</strong></div>
+        <div class="stat orange"><span>Absence</span><strong id="d_absence">0%</strong></div>
+      </div>
+
+      <h4 style="margin-top:16px;">Email status</h4>
+      <div class="stats" style="grid-template-columns:repeat(4,1fr)">
+        <div class="stat"><span>Total</span><strong id="e_total">0</strong></div>
+        <div class="stat"><span>Sent</span><strong id="e_sent">0</strong></div>
+        <div class="stat orange"><span>Pending</span><strong id="e_pending">0</strong></div>
+        <div class="stat orange"><span>Failed</span><strong id="e_failed">0</strong></div>
+      </div>
+
+      <h4 style="margin-top:16px;">Attendance graph</h4>
+      <canvas id="graphCanvas" width="900" height="260"></canvas>
+
+      <h4 style="margin-top:16px;">Latest check-ins</h4>
+      <div id="latestList"></div>
+    </div>
+  </div>
+
+  <div id="leaderboardTab" class="tab">
+    <div class="card">
+      <h3>Live Leaderboard</h3>
+      <div id="leaderboardList"></div>
+    </div>
+  </div>
+
+  <div id="searchTab" class="tab">
+    <div class="card">
+      <h3>Search attendee</h3>
+      <input id="searchQuery" placeholder="Name / email / phone / team / ID" />
+      <button onclick="runSearch()">Search</button>
+      <div id="searchResults"></div>
+    </div>
+  </div>
+
+  <div id="pointsTab" class="tab">
+    <div class="card">
+      <h3>Add Points</h3>
+      <input id="pointsId" placeholder="Attendee ID" />
+      <input id="pointsValue" type="number" placeholder="Points (+/-)" />
+      <input id="pointsReason" placeholder="Reason" />
+      <button class="orange" onclick="addPoints()">Save points</button>
+      <div id="pointsMsg" class="msg"></div>
+    </div>
+  </div>
+
+  <div id="adminTab" class="tab">
+    <div class="card">
+      <h3>Admin Panel</h3>
+      <input id="adminId" placeholder="Attendee ID" />
+      <div class="row">
+        <button onclick="adminSetPresent()">Set Present</button>
+        <button class="orange" onclick="adminSetAbsent()">Set Absent</button>
+      </div>
+      <div id="adminMsg" class="msg"></div>
+    </div>
+  </div>
 </div>
 
 <script>
-const BASE="PUT_DEPLOY_LINK_HERE";
+const API = "https://script.google.com/macros/s/AKfycbyfoYoSTp6D-4ru8wqh5t-4jcdbsag3yYw0kUYNJRPmv3wtZJ9yKLSmhgFCVrKq-GeSgg/exec";
 
-function start(){
- new Html5Qrcode("reader").start(
- { facingMode: "environment" },
- { fps:10 },
- async (txt)=>{
-  await fetch(BASE+"?action=checkin&id="+txt);
-  loadDash();
- }
- );
+let scanner = null;
+let scannerRunning = false;
+let scanLock = false;
+let refreshTimer = null;
+
+function eventKey() {
+  return document.getElementById("eventSelect").value || "training";
+}
+function organizerName() {
+  return document.getElementById("organizerName").value.trim();
+}
+function showTab(id) {
+  document.querySelectorAll(".tab").forEach(t => t.classList.remove("active"));
+  document.getElementById(id).classList.add("active");
+}
+function setMsg(id, text, cls="") {
+  const el = document.getElementById(id);
+  el.className = "msg " + cls;
+  el.textContent = text || "";
+}
+function escapeHtml(str) {
+  return String(str || "")
+    .replace(/&/g,"&amp;")
+    .replace(/</g,"&lt;")
+    .replace(/>/g,"&gt;")
+    .replace(/"/g,"&quot;")
+    .replace(/'/g,"&#39;");
+}
+function jsonp(url) {
+  return new Promise((resolve, reject) => {
+    const cb = "cb_" + Date.now() + "_" + Math.floor(Math.random()*100000);
+    window[cb] = function(data) {
+      resolve(data);
+      cleanup();
+    };
+    function cleanup() {
+      try { delete window[cb]; } catch (_) {}
+      if (script.parentNode) script.parentNode.removeChild(script);
+    }
+    const script = document.createElement("script");
+    script.src = url + (url.includes("?") ? "&" : "?") + "callback=" + cb;
+    script.onerror = function() {
+      reject(new Error("JSONP failed"));
+      cleanup();
+    };
+    document.body.appendChild(script);
+  });
+}
+function sound(type) {
+  try {
+    const ctx = new (window.AudioContext || window.webkitAudioContext)();
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.connect(gain); gain.connect(ctx.destination);
+    osc.type = "sine";
+    osc.frequency.value = type === "ok" ? 900 : 280;
+    gain.gain.setValueAtTime(0.12, ctx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 0.15);
+    osc.start();
+    setTimeout(() => { osc.stop(); ctx.close(); }, 160);
+  } catch(_) {}
+}
+function flashScanCard(ok=true) {
+  const card = document.getElementById("scanCard");
+  card.classList.remove("scan-flash");
+  void card.offsetWidth;
+  card.classList.add("scan-flash");
+  card.style.border = ok ? "2px solid #2FB6AD" : "2px solid #FF7A2F";
+  setTimeout(() => { card.style.border = "none"; }, 500);
 }
 
-async function loadDash(){
- const r=await fetch(BASE+"?action=dashboard");
- const d=await r.json();
- total.innerText=d.total;
- present.innerText=d.present;
- absent.innerText=d.absent;
+async function loadEvents() {
+  const res = await jsonp(`${API}?action=events`);
+  const select = document.getElementById("eventSelect");
+  select.innerHTML = res.events.map(ev => `<option value="${escapeHtml(ev.key)}">${escapeHtml(ev.name)}</option>`).join("");
 }
-loadDash();
 
-async function addPoints(){
- await fetch(BASE,{
- method:"POST",
- body:JSON.stringify({action:"points",id:id.value,points:pts.value})
- });
+async function loadDashboard() {
+  const ev = encodeURIComponent(eventKey());
+  const data = await jsonp(`${API}?action=dashboard&event=${ev}`);
+  document.getElementById("d_total").textContent = data.total || 0;
+  document.getElementById("d_present").textContent = data.present || 0;
+  document.getElementById("d_absent").textContent = data.absent || 0;
+  document.getElementById("d_attendance").textContent = (data.attendanceRate || 0) + "%";
+  document.getElementById("d_absence").textContent = (data.absenceRate || 0) + "%";
+
+  const latest = document.getElementById("latestList");
+  latest.innerHTML = (data.latest || []).length
+    ? data.latest.map(x => `
+      <div class="person">
+        <strong>${escapeHtml(x.name)}</strong>
+        <div>${escapeHtml(x.id)}</div>
+        <div>${escapeHtml(String(x.checkinTime || ""))}</div>
+        <div>Points: ${x.points || 0}</div>
+      </div>
+    `).join("")
+    : `<p style="color:#6b7f86">No check-ins yet</p>`;
+
+  const email = await jsonp(`${API}?action=emailStatus&event=${ev}`);
+  document.getElementById("e_total").textContent = email.total || 0;
+  document.getElementById("e_sent").textContent = email.sent || 0;
+  document.getElementById("e_pending").textContent = email.pending || 0;
+  document.getElementById("e_failed").textContent = email.failed || 0;
 }
+
+async function loadLeaderboard() {
+  const ev = encodeURIComponent(eventKey());
+  const res = await jsonp(`${API}?action=leaderboard&event=${ev}`);
+  const box = document.getElementById("leaderboardList");
+  box.innerHTML = (res.items || []).length
+    ? res.items.map((x, i) => `
+      <div class="person">
+        <strong>#${i+1} — ${escapeHtml(x.name)}</strong>
+        <div>${escapeHtml(x.id)}</div>
+        <div>Team: ${escapeHtml(x.team || "")}</div>
+        <div>Points: ${x.points || 0}</div>
+      </div>
+    `).join("")
+    : `<p style="color:#6b7f86">No leaderboard data yet</p>`;
+}
+
+async function loadGraph() {
+  const ev = encodeURIComponent(eventKey());
+  const res = await jsonp(`${API}?action=attendanceGraph&event=${ev}`);
+  drawGraph(res.labels || [], res.values || []);
+}
+
+function drawGraph(labels, values) {
+  const canvas = document.getElementById("graphCanvas");
+  const ctx = canvas.getContext("2d");
+  ctx.clearRect(0,0,canvas.width,canvas.height);
+
+  ctx.fillStyle = "#ffffff";
+  ctx.fillRect(0,0,canvas.width,canvas.height);
+
+  const pad = 50;
+  const w = canvas.width - pad * 2;
+  const h = canvas.height - pad * 2;
+  const max = Math.max(...values, 1);
+
+  ctx.strokeStyle = "#dfeeed";
+  ctx.lineWidth = 1;
+
+  for (let i = 0; i < 5; i++) {
+    const y = pad + (h / 4) * i;
+    ctx.beginPath();
+    ctx.moveTo(pad, y);
+    ctx.lineTo(pad + w, y);
+    ctx.stroke();
+  }
+
+  if (!labels.length) return;
+
+  labels.forEach((label, i) => {
+    const x = pad + (w / labels.length) * i + (w / labels.length) * 0.15;
+    const bw = (w / labels.length) * 0.7;
+    const bh = (values[i] / max) * h;
+
+    ctx.fillStyle = "#2FB6AD";
+    ctx.fillRect(x, pad + h - bh, bw, bh);
+
+    ctx.fillStyle = "#17313a";
+    ctx.font = "12px Arial";
+    ctx.fillText(label, x, pad + h + 18);
+    ctx.fillText(values[i], x, pad + h - bh - 8);
+  });
+}
+
+async function runSearch() {
+  const q = document.getElementById("searchQuery").value.trim();
+  if (!q) return;
+  const ev = encodeURIComponent(eventKey());
+  const res = await jsonp(`${API}?action=search&event=${ev}&q=${encodeURIComponent(q)}`);
+
+  const box = document.getElementById("searchResults");
+  box.innerHTML = (res.results || []).length
+    ? res.results.map(x => `
+      <div class="person">
+        <strong>${escapeHtml(x.name)}</strong>
+        <div>${escapeHtml(x.id)}</div>
+        <div>${escapeHtml(x.email)}</div>
+        <div>${escapeHtml(x.phone)}</div>
+        <div>Status: ${escapeHtml(x.status)}</div>
+        <div>Email: ${escapeHtml(x.emailSent)}</div>
+        <div>Points: ${x.points || 0}</div>
+      </div>
+    `).join("")
+    : `<p style="color:#6b7f86">No results</p>`;
+}
+
+async function startScanner() {
+  if (scannerRunning) return;
+  scanner = new Html5Qrcode("reader");
+
+  scanner.start(
+    { facingMode: "environment" },
+    { fps: 10, qrbox: { width: 240, height: 240 } },
+    async (decodedText) => {
+      if (scanLock) return;
+      scanLock = true;
+      await doCheckin(decodedText);
+      setTimeout(() => scanLock = false, 1500);
+    },
+    () => {}
+  ).then(() => {
+    scannerRunning = true;
+    setMsg("scanMsg", "Camera started", "success");
+  }).catch(err => {
+    setMsg("scanMsg", "Camera error: " + String(err), "error");
+  });
+}
+
+async function stopScanner() {
+  if (!scanner || !scannerRunning) return;
+  await scanner.stop();
+  scannerRunning = false;
+  document.getElementById("reader").innerHTML = "";
+  setMsg("scanMsg", "Camera stopped", "warn");
+}
+
+async function doCheckin(id) {
+  const ev = encodeURIComponent(eventKey());
+  const org = encodeURIComponent(organizerName());
+  const res = await jsonp(`${API}?action=checkin&event=${ev}&id=${encodeURIComponent(id)}&organizer=${org}`);
+
+  if (res.ok) {
+    setMsg("scanMsg", "Checked in successfully", "success");
+    document.getElementById("scanResult").innerHTML = renderPerson(res.attendee, "ok");
+    navigator.vibrate?.(120);
+    sound("ok");
+    flashScanCard(true);
+  } else if (res.status === "already_checked_in") {
+    setMsg("scanMsg", "Already checked in", "warn");
+    document.getElementById("scanResult").innerHTML = renderPerson(res.attendee, "warn");
+    navigator.vibrate?.([70,70,70]);
+    sound("warn");
+    flashScanCard(false);
+  } else {
+    setMsg("scanMsg", "Attendee not found", "error");
+    document.getElementById("scanResult").innerHTML = "";
+    navigator.vibrate?.([90,70,90]);
+    sound("warn");
+    flashScanCard(false);
+  }
+
+  await refreshAll();
+}
+
+function manualScan() {
+  const id = document.getElementById("manualId").value.trim();
+  if (!id) {
+    setMsg("scanMsg", "Enter attendee ID first", "error");
+    return;
+  }
+  doCheckin(id);
+}
+
+async function addPoints() {
+  const id = document.getElementById("pointsId").value.trim();
+  const points = document.getElementById("pointsValue").value.trim();
+  const reason = document.getElementById("pointsReason").value.trim();
+  if (!id || !points) {
+    setMsg("pointsMsg", "Enter ID and points", "error");
+    return;
+  }
+  const ev = encodeURIComponent(eventKey());
+  const res = await jsonp(`${API}?action=addPoints&event=${ev}&id=${encodeURIComponent(id)}&points=${encodeURIComponent(points)}&reason=${encodeURIComponent(reason)}`);
+  setMsg("pointsMsg", res.ok ? `Saved. Total: ${res.total}` : "Failed to save points", res.ok ? "success" : "error");
+  await refreshAll();
+}
+
+async function adminSetPresent() {
+  const id = document.getElementById("adminId").value.trim();
+  const ev = encodeURIComponent(eventKey());
+  const res = await jsonp(`${API}?action=setStatus&event=${ev}&id=${encodeURIComponent(id)}&status=Present`);
+  setMsg("adminMsg", res.ok ? "Marked Present" : "Failed", res.ok ? "success" : "error");
+  await refreshAll();
+}
+
+async function adminSetAbsent() {
+  const id = document.getElementById("adminId").value.trim();
+  const ev = encodeURIComponent(eventKey());
+  const res = await jsonp(`${API}?action=setStatus&event=${ev}&id=${encodeURIComponent(id)}&status=Absent`);
+  setMsg("adminMsg", res.ok ? "Marked Absent" : "Failed", res.ok ? "success" : "error");
+  await refreshAll();
+}
+
+function renderPerson(attendee, state) {
+  const badge = state === "ok"
+    ? `<span class="badge ok">Checked in</span>`
+    : state === "warn"
+      ? `<span class="badge warn">Already checked in</span>`
+      : `<span class="badge no">Unknown</span>`;
+
+  return `
+    <div class="person">
+      <strong>${escapeHtml(attendee?.name || "")}</strong>
+      <div>${escapeHtml(attendee?.id || "")}</div>
+      <div>${escapeHtml(attendee?.email || "")}</div>
+      <div>Status: ${escapeHtml(attendee?.status || "")}</div>
+      <div>Points: ${attendee?.points || 0}</div>
+      ${badge}
+    </div>
+  `;
+}
+
+async function refreshAll() {
+  await Promise.all([
+    loadDashboard(),
+    loadLeaderboard(),
+    loadGraph()
+  ]);
+}
+
+function startLive() {
+  if (refreshTimer) clearInterval(refreshTimer);
+  refreshTimer = setInterval(refreshAll, 4000);
+}
+
+window.addEventListener("load", async () => {
+  await loadEvents();
+  await refreshAll();
+  startLive();
+  document.getElementById("eventSelect").addEventListener("change", refreshAll);
+});
 </script>
-
 </body>
 </html>
