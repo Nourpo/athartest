@@ -1,0 +1,336 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Athar QR Scanner</title>
+  <script src="https://unpkg.com/html5-qrcode"></script>
+  <style>
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: Arial, sans-serif;
+      background: #f5f7fb;
+      color: #111;
+    }
+    .container {
+      max-width: 720px;
+      margin: 0 auto;
+      padding: 16px;
+    }
+    .card {
+      background: #fff;
+      border-radius: 18px;
+      padding: 16px;
+      box-shadow: 0 10px 30px rgba(0,0,0,.08);
+      margin-bottom: 16px;
+    }
+    h1, h2, h3 { margin-top: 0; }
+    .muted { color: #667085; }
+    input, button {
+      width: 100%;
+      padding: 14px;
+      border-radius: 12px;
+      border: 1px solid #d8deea;
+      margin-top: 10px;
+      font-size: 16px;
+    }
+    button {
+      background: #111;
+      color: #fff;
+      border: none;
+      font-weight: 700;
+      cursor: pointer;
+    }
+    button.secondary {
+      background: #e9eef7;
+      color: #111;
+    }
+    .row {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+    }
+    #reader {
+      width: 100%;
+      overflow: hidden;
+      border-radius: 14px;
+      background: #000;
+      min-height: 240px;
+      margin-top: 12px;
+    }
+    .msg {
+      margin-top: 12px;
+      font-weight: 700;
+      min-height: 24px;
+    }
+    .success { color: #0f9d58; }
+    .error { color: #d93025; }
+    .warn { color: #b26a00; }
+    .person {
+      margin-top: 12px;
+      padding: 12px;
+      border-radius: 14px;
+      background: #fafcff;
+      border: 1px solid #e6ebf2;
+    }
+    .badge {
+      display: inline-block;
+      padding: 6px 10px;
+      border-radius: 999px;
+      font-size: 12px;
+      font-weight: 700;
+      margin-top: 8px;
+    }
+    .badge.ok { background: #e8f5e9; color: #137333; }
+    .badge.no { background: #fce8e6; color: #c5221f; }
+    .badge.warn { background: #fff4e5; color: #9a6700; }
+    @media (max-width: 640px) {
+      .row {
+        grid-template-columns: 1fr;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="card">
+      <h1>Athar QR Scanner</h1>
+      <p class="muted">Scan attendee QR and check them in instantly.</p>
+
+      <input id="webAppUrl" placeholder="Paste Apps Script Web App URL here" />
+      <input id="organizerName" placeholder="Organizer name" />
+
+      <div class="row">
+        <button onclick="startCamera()">Start Camera</button>
+        <button class="secondary" onclick="stopCamera()">Stop Camera</button>
+      </div>
+
+      <div id="reader"></div>
+
+      <input id="manualQr" placeholder="Manual QR / Attendee ID (fallback)" />
+      <button onclick="submitManual()">Check in manually</button>
+
+      <div id="msg" class="msg"></div>
+      <div id="result"></div>
+    </div>
+  </div>
+
+  <script>
+    let scanner = null;
+    let cameraRunning = false;
+    let scanLocked = false;
+
+    function setMsg(text, type = "") {
+      const el = document.getElementById("msg");
+      el.className = "msg " + type;
+      el.textContent = text || "";
+    }
+
+    function renderResult(res) {
+      const box = document.getElementById("result");
+
+      if (!res) {
+        box.innerHTML = "";
+        return;
+      }
+
+      const attendee = res.attendee || {};
+      const name = escapeHtml(attendee.name || "");
+      const id = escapeHtml(attendee.attendeeId || "");
+      const email = escapeHtml(attendee.email || "");
+      const whatsapp = escapeHtml(attendee.whatsapp || "");
+      const time = escapeHtml(String(attendee.checkInTime || ""));
+      const points = attendee.totalPoints || 0;
+
+      let badge = '';
+      if (res.status === "checked_in") {
+        badge = '<span class="badge ok">Checked in</span>';
+      } else if (res.status === "already_checked_in") {
+        badge = '<span class="badge warn">Already checked in</span>';
+      } else {
+        badge = '<span class="badge no">Not found</span>';
+      }
+
+      box.innerHTML = `
+        <div class="person">
+          <strong>${name}</strong><br>
+          <div>${id}</div>
+          <div>${email}</div>
+          <div>${whatsapp}</div>
+          <div>${time}</div>
+          <div>Points: ${points}</div>
+          ${badge}
+        </div>
+      `;
+    }
+
+    function jsonp(url) {
+      return new Promise((resolve, reject) => {
+        const callbackName = "cb_" + Date.now() + "_" + Math.floor(Math.random() * 10000);
+        window[callbackName] = function(data) {
+          resolve(data);
+          cleanup();
+        };
+
+        function cleanup() {
+          try { delete window[callbackName]; } catch (_) {}
+          if (script.parentNode) script.parentNode.removeChild(script);
+        }
+
+        const script = document.createElement("script");
+        script.src = url + (url.includes("?") ? "&" : "?") + "callback=" + callbackName;
+        script.onerror = function() {
+          reject(new Error("JSONP request failed"));
+          cleanup();
+        };
+
+        document.body.appendChild(script);
+      });
+    }
+
+    async function checkIn(qrValue) {
+      const baseUrl = document.getElementById("webAppUrl").value.trim();
+      const organizer = document.getElementById("organizerName").value.trim();
+
+      if (!baseUrl) {
+        setMsg("Paste your Apps Script Web App URL first", "error");
+        return;
+      }
+
+      if (!organizer) {
+        setMsg("Enter organizer name first", "error");
+        return;
+      }
+
+      try {
+        const url =
+          baseUrl +
+          "?action=apiCheckIn" +
+          "&qr=" + encodeURIComponent(qrValue) +
+          "&organizer=" + encodeURIComponent(organizer);
+
+        const res = await jsonp(url);
+
+        if (res.ok) {
+          setMsg("Checked in successfully", "success");
+          renderResult(res);
+          if (navigator.vibrate) navigator.vibrate(120);
+          beep(900, 120);
+          return;
+        }
+
+        if (res.status === "already_checked_in") {
+          setMsg("Already checked in", "warn");
+          renderResult(res);
+          if (navigator.vibrate) navigator.vibrate([80, 80, 80]);
+          beep(500, 160);
+          return;
+        }
+
+        setMsg("Attendee not found", "error");
+        renderResult(res);
+        if (navigator.vibrate) navigator.vibrate([80, 80, 80, 80]);
+        beep(250, 180);
+      } catch (err) {
+        setMsg("Failed to connect to Apps Script API", "error");
+      }
+    }
+
+    function startCamera() {
+      setMsg("");
+
+      if (cameraRunning) {
+        setMsg("Camera already running", "warn");
+        return;
+      }
+
+      if (!window.Html5Qrcode) {
+        setMsg("QR scanner library failed to load", "error");
+        return;
+      }
+
+      scanner = new Html5Qrcode("reader");
+
+      scanner.start(
+        { facingMode: "environment" },
+        { fps: 10, qrbox: { width: 240, height: 240 } },
+        async (decodedText) => {
+          if (scanLocked) return;
+          scanLocked = true;
+
+          document.getElementById("manualQr").value = decodedText;
+          await checkIn(decodedText);
+
+          setTimeout(() => {
+            scanLocked = false;
+          }, 1500);
+        },
+        () => {}
+      ).then(() => {
+        cameraRunning = true;
+        setMsg("Camera started", "success");
+      }).catch(err => {
+        setMsg("Camera error: " + String(err), "error");
+      });
+    }
+
+    function stopCamera() {
+      if (!scanner || !cameraRunning) {
+        setMsg("Camera is not running", "warn");
+        return;
+      }
+
+      scanner.stop()
+        .then(() => {
+          cameraRunning = false;
+          document.getElementById("reader").innerHTML = "";
+          scanner = null;
+          setMsg("Camera stopped", "warn");
+        })
+        .catch(err => {
+          setMsg("Failed to stop camera: " + String(err), "error");
+        });
+    }
+
+    function submitManual() {
+      const qr = document.getElementById("manualQr").value.trim();
+      if (!qr) {
+        setMsg("Enter QR / attendee ID first", "error");
+        return;
+      }
+      checkIn(qr);
+    }
+
+    function beep(freq = 800, duration = 120) {
+      try {
+        const ctx = new (window.AudioContext || window.webkitAudioContext)();
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.type = "sine";
+        osc.frequency.value = freq;
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+        osc.start();
+
+        gain.gain.setValueAtTime(0.1, ctx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + duration / 1000);
+
+        setTimeout(() => {
+          osc.stop();
+          ctx.close();
+        }, duration);
+      } catch (_) {}
+    }
+
+    function escapeHtml(str) {
+      return String(str)
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&#39;");
+    }
+  </script>
+</body>
+</html>
